@@ -1,5 +1,5 @@
 import argparse
-from .audio_io import read_wav, write_wav, generate_tone
+from .audio_io import read_wav, write_wav, generate_tone, generate_white_noise
 from .effects import hard_clip, gain, soft_clip, comb_filter
 from .processor import AudioProcessor
 
@@ -14,6 +14,17 @@ def cmd_generate_tone(args: argparse.Namespace) -> None:
     )
     write_wav(args.output, sig, args.sample_rate)
     print(f"Generated tone: {args.output}")
+
+
+def cmd_generate_noise(args: argparse.Namespace) -> None:
+    sig = generate_white_noise(
+        duration=args.duration,
+        sample_rate=args.sample_rate,
+        amplitude=args.amplitude,
+        channels=args.channels,
+    )
+    write_wav(args.output, sig, args.sample_rate)
+    print(f"Generated white noise: {args.output}")
 
 
 def cmd_process(args: argparse.Namespace) -> None:
@@ -47,6 +58,15 @@ def build_parser() -> argparse.ArgumentParser:
     pg.add_argument("--amplitude", type=float, default=0.9)
     pg.add_argument("--channels", type=int, choices=[1, 2], default=1)
     pg.set_defaults(func=cmd_generate_tone)
+
+    # generate-noise
+    pn = sub.add_parser("generate-noise", help="Generate white-noise WAV")
+    pn.add_argument("--output", required=True, help="Output WAV path")
+    pn.add_argument("--duration", type=float, default=1.0)
+    pn.add_argument("--sample_rate", type=int, default=44100)
+    pn.add_argument("--amplitude", type=float, default=0.9)
+    pn.add_argument("--channels", type=int, choices=[1, 2], default=1)
+    pn.set_defaults(func=cmd_generate_noise)
 
     # process
     pp = sub.add_parser("process", help="Process a WAV file")

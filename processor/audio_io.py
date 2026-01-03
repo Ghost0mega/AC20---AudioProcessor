@@ -69,3 +69,21 @@ def generate_tone(
         return np.column_stack([sig, sig])
     else:
         raise ValueError("Only mono or stereo supported.")
+
+
+def generate_white_noise(
+    duration: float = 1.0,
+    sample_rate: int = 44100,
+    amplitude: float = 0.9,
+    channels: int = 1,
+) -> np.ndarray:
+    """Generate uniform white noise as float32 in [-amplitude, amplitude]."""
+    n = int(duration * sample_rate)
+    amp = float(np.clip(amplitude, 0.0, 1.0))
+    noise = (np.random.uniform(-1.0, 1.0, size=n).astype(np.float32)) * amp
+    if channels == 1:
+        return noise.reshape(-1, 1)
+    elif channels == 2:
+        return np.column_stack([noise, noise])
+    else:
+        raise ValueError("Only mono or stereo supported.")

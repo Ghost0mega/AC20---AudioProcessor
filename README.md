@@ -23,6 +23,12 @@ pip install -r requirements.txt
 python -m processor.cli generate-tone --output tone.wav --frequency 440 --duration 1.5 --amplitude 1.0
 ```
 
+### Generate white noise
+
+```bash
+python -m processor.cli generate-noise --output noise.wav --duration 2.0 --amplitude 0.8
+```
+
 ## Processing examples
 
 ### Gain
