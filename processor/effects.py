@@ -62,5 +62,46 @@ def soft_clip(
     return y.astype(np.float32)
 
 
+def comb_filter(
+    signal: np.ndarray,
+    sample_rate: int,
+    delay_ms: float = 10.0,
+    feedback: float = 0.5,
+    feedforward: float = 0.0,
+    mix: float = 1.0,
+) -> np.ndarray:
+    """Comb filter with delay input.
+
+    - delay_ms: delay in milliseconds (converted to samples)
+    - feedback: feedback coefficient (y[n] += feedback * y[n-D])
+    - feedforward: feedforward coefficient (y[n] += feedforward * x[n-D])
+    - mix: wet mix amount in [0,1]; output = (1-mix)*x + mix*y
+
+    Notes
+    - Supports mono/stereo with shape (N, C).
+    - For stability, |feedback| should be < 1.
+    """
+    x = signal.astype(np.float32)
+    if x.ndim == 1:
+        x = x.reshape(-1, 1)
+
+    n, c = x.shape
+    delay_samples = int(max(1, round(delay_ms * sample_rate / 1000.0)))
+    y = np.zeros_like(x, dtype=np.float32)
+
+    for ch in range(c):
+        # Process each channel with simple sample loop to handle feedback
+        for i in range(n):
+            acc = x[i, ch]
+            j = i - delay_samples
+            if j >= 0:
+                acc += feedforward * x[j, ch]
+                acc += feedback * y[j, ch]
+            y[i, ch] = acc
+
+    out = (1.0 - mix) * x + mix * y
+    return out.astype(np.float32)
+
+
 # Typing helper for processors
 Processor = Callable[[np.ndarray], np.ndarray]

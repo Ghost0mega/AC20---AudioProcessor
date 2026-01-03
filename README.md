@@ -75,10 +75,24 @@ python -m processor.cli process \
 	--hard-clip 0.95
 ```
 
+### Comb filter
+
+Enable comb filtering with delay (ms), feedback, feedforward, and wet mix:
+
+```bash
+python -m processor.cli process --input tone.wav --output comb.wav \
+	--comb --comb-delay-ms 10 --comb-feedback 0.6 --comb-feedforward 0.0 --comb-mix 1.0
+```
+
+This implements:
+- `y[n] = x[n] + feedforward · x[n-D] + feedback · y[n-D]`, where `D` is the delay in samples.
+- Output is `(1-mix)·x + mix·y`.
+
 ## Code Structure
 
 - [processor/audio_io.py](processor/audio_io.py): WAV file I/O (16-bit PCM) with NumPy.
 - [processor/effects.py](processor/effects.py): Effects `gain(...)`, `hard_clip(...)`, `soft_clip(...)` variants.
+	Also: `comb_filter(signal, sample_rate, delay_ms, feedback, feedforward, mix)`.
 - [processor/processor.py](processor/processor.py): `AudioProcessor` for chaining effects.
 - [processor/cli.py](processor/cli.py): Command-line interface.
 
