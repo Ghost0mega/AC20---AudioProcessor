@@ -316,5 +316,112 @@ def moving_average_filter(
         raise ValueError("mode must be one of: lp, hp, bp, notch")
 
 
+def _ema_channel(x: np.ndarray, alpha: float) -> np.ndarray:
+    """Single-channel exponential moving average low-pass."""
+    y = np.empty_like(x, dtype=np.float32)
+    y0 = x[0].astype(np.float32)
+    y[0] = y0
+    a = float(np.clip(alpha, 0.0, 1.0))
+    one_minus_a = 1.0 - a
+    for i in range(1, x.shape[0]):
+        y[i] = one_minus_a * y[i - 1] + a * x[i]
+    return y
+
+
+def running_average_lowpass(
+    signal: np.ndarray,
+    sample_rate: int,
+    cutoff_hz: float,
+    order: int = 1,
+    brickwall: bool = False,
+) -> np.ndarray:
+    """Exponential moving-average low-pass (EMA).
+
+    - cutoff_hz: approximate -3 dB frequency; mapped via alpha = 1 - exp(-2π fc/fs)
+    - order: number of cascaded EMA stages (increases slope)
+    - brickwall: apply forward + reverse (zero-phase) filtering for steep response
+    """
+    x = signal.astype(np.float32)
+    if x.ndim == 1:
+        x = x.reshape(-1, 1)
+    n, c = x.shape
+
+    fc = float(max(cutoff_hz, 1e-6))
+    fs = float(sample_rate)
+    alpha = 1.0 - np.exp(-2.0 * np.pi * fc / fs)
+    stages = max(1, int(order))
+
+    y = x.copy()
+    # Forward cascades
+    for _ in range(stages):
+        for ch in range(c):
+            y[:, ch] = _ema_channel(y[:, ch], alpha)
+
+    if brickwall:
+        # Reverse cascades for zero-phase, steeper response
+        y = y[::-1]
+        for _ in range(stages):
+            for ch in range(c):
+                y[:, ch] = _ema_channel(y[:, ch], alpha)
+        y = y[::-1]
+
+    return y.astype(np.float32)
+
+
+def running_average_filter(
+    signal: np.ndarray,
+    sample_rate: int,
+    mode: str = "lp",
+    cutoff_hz: float | None = None,
+    low_cutoff_hz: float | None = None,
+    high_cutoff_hz: float | None = None,
+    order: int = 1,
+    brickwall: bool = False,
+) -> np.ndarray:
+    """Composite filters (LP/HP/BP/Notch) derived from EMA low-pass.
+
+    - Slope: controlled by `order` (stages). Higher → steeper.
+    - Brickwall: forward+reverse for zero-phase and sharper skirts.
+    """
+    x = signal.astype(np.float32)
+    if x.ndim == 1:
+        x = x.reshape(-1, 1)
+
+    if mode == "lp":
+        if cutoff_hz is None:
+            raise ValueError("lp requires cutoff_hz")
+        return running_average_lowpass(x, sample_rate, float(cutoff_hz), order, brickwall)
+
+    elif mode == "hp":
+        if cutoff_hz is None:
+            raise ValueError("hp requires cutoff_hz")
+        lp = running_average_lowpass(x, sample_rate, float(cutoff_hz), order, brickwall)
+        return (x - lp).astype(np.float32)
+
+    elif mode == "bp":
+        if low_cutoff_hz is None or high_cutoff_hz is None:
+            raise ValueError("bp requires low_cutoff_hz and high_cutoff_hz")
+        lo = float(low_cutoff_hz)
+        hi = float(high_cutoff_hz)
+        if not (lo < hi):
+            raise ValueError("For bp, require low_cutoff_hz < high_cutoff_hz")
+        lp_hi = running_average_lowpass(x, sample_rate, hi, order, brickwall)
+        lp_lo = running_average_lowpass(x, sample_rate, lo, order, brickwall)
+        return (lp_hi - lp_lo).astype(np.float32)
+
+    elif mode == "notch":
+        if low_cutoff_hz is None or high_cutoff_hz is None:
+            raise ValueError("notch requires low_cutoff_hz and high_cutoff_hz")
+        lo = float(low_cutoff_hz)
+        hi = float(high_cutoff_hz)
+        if not (lo < hi):
+            raise ValueError("For notch, require low_cutoff_hz < high_cutoff_hz")
+        bp = running_average_filter(x, sample_rate, mode="bp", low_cutoff_hz=lo, high_cutoff_hz=hi, order=order, brickwall=brickwall)
+        return (x - bp).astype(np.float32)
+
+    else:
+        raise ValueError("mode must be one of: lp, hp, bp, notch")
+
+
 # Typing helper for processors
 Processor = Callable[[np.ndarray], np.ndarray]

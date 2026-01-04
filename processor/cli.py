@@ -1,6 +1,6 @@
 import argparse
 from .audio_io import read_wav, write_wav, generate_tone, generate_white_noise
-from .effects import hard_clip, gain, soft_clip, comb_filter, phaser, flanger, moving_average_filter
+from .effects import hard_clip, gain, soft_clip, comb_filter, phaser, flanger, moving_average_filter, running_average_filter
 from .processor import AudioProcessor
 
 
@@ -41,6 +41,8 @@ def cmd_process(args: argparse.Namespace) -> None:
         pipeline.add(lambda s: flanger(s, sr, args.flanger_base_ms, args.flanger_depth_ms, args.flanger_rate, args.flanger_feedback, args.flanger_mix))
     if args.ma_filter is not None:
         pipeline.add(lambda s: moving_average_filter(s, sr, args.ma_filter, args.ma_cutoff, args.ma_low, args.ma_high))
+    if args.ra_filter is not None:
+        pipeline.add(lambda s: running_average_filter(s, sr, args.ra_filter, args.ra_cutoff, args.ra_low, args.ra_high, args.ra_order, args.ra_brickwall))
     if args.soft_clip is not None:
         pipeline.add(lambda s: soft_clip(s, args.soft_clip, args.soft_g, args.soft_T, args.soft_a, args.soft_b))
     if args.hard_clip is not None:
@@ -107,6 +109,14 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--ma-cutoff", dest="ma_cutoff", type=float, default=None, help="Cutoff for lp/hp (Hz)")
     pp.add_argument("--ma-low", dest="ma_low", type=float, default=None, help="Low cutoff for bp/notch (Hz)")
     pp.add_argument("--ma-high", dest="ma_high", type=float, default=None, help="High cutoff for bp/notch (Hz)")
+    # Running-average (EMA) filters
+    pp.add_argument("--ra-filter", dest="ra_filter", choices=["lp", "hp", "bp", "notch"], default=None,
+                    help="Running-average (EMA) filter type")
+    pp.add_argument("--ra-cutoff", dest="ra_cutoff", type=float, default=None, help="Cutoff for lp/hp (Hz)")
+    pp.add_argument("--ra-low", dest="ra_low", type=float, default=None, help="Low cutoff for bp/notch (Hz)")
+    pp.add_argument("--ra-high", dest="ra_high", type=float, default=None, help="High cutoff for bp/notch (Hz)")
+    pp.add_argument("--ra-order", dest="ra_order", type=int, default=1, help="EMA stages (slope)")
+    pp.add_argument("--ra-brickwall", dest="ra_brickwall", action="store_true", help="Enable brickwall (forward+reverse) filtering")
     pp.add_argument("--soft-clip", dest="soft_clip", choices=["tanh", "atan", "rational", "tube"], default=None,
                     help="Soft clip variant: tanh, atan, rational, tube")
     pp.add_argument("--soft-g", dest="soft_g", type=float, default=1.0, help="Soft clip drive g")
