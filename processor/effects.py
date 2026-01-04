@@ -229,5 +229,92 @@ def flanger(
     return y.astype(np.float32)
 
 
+def moving_average_lowpass(signal: np.ndarray, window_samples: int) -> np.ndarray:
+    """Moving-average low-pass filter.
+
+    window_samples: number of samples in the averaging window (>= 1).
+    Applies per-channel with 'same' alignment.
+    """
+    x = signal.astype(np.float32)
+    if x.ndim == 1:
+        x = x.reshape(-1, 1)
+    n, c = x.shape
+    w = max(1, int(window_samples))
+    kernel = np.ones(w, dtype=np.float32) / float(w)
+    y = np.zeros_like(x, dtype=np.float32)
+    for ch in range(c):
+        y[:, ch] = np.convolve(x[:, ch], kernel, mode='same')
+    return y.astype(np.float32)
+
+
+def moving_average_filter(
+    signal: np.ndarray,
+    sample_rate: int,
+    mode: str = "lp",
+    cutoff_hz: float | None = None,
+    low_cutoff_hz: float | None = None,
+    high_cutoff_hz: float | None = None,
+) -> np.ndarray:
+    """Composite filters built from moving-average low-pass.
+
+    Modes:
+    - 'lp': low-pass using moving average at cutoff_hz
+    - 'hp': high-pass as x - LP(cutoff_hz)
+    - 'bp': band-pass as LP(high_cutoff) - LP(low_cutoff)
+    - 'notch': band-stop as x - BP(low_cutoff, high_cutoff)
+
+    Notes:
+    - Moving-average LP has sinc response; cutoff mapping is approximate.
+      We map window N ≈ fs / cutoff_hz for clear, visible changes.
+    """
+    x = signal.astype(np.float32)
+    if x.ndim == 1:
+        x = x.reshape(-1, 1)
+
+    def win_for_cutoff(cut: float) -> int:
+        # Approximate mapping: first null at fs/N ≈ cutoff
+        return max(1, int(round(sample_rate / max(cut, 1e-3))))
+
+    if mode == "lp":
+        if cutoff_hz is None:
+            raise ValueError("lp requires cutoff_hz")
+        N = win_for_cutoff(float(cutoff_hz))
+        return moving_average_lowpass(x, N)
+
+    elif mode == "hp":
+        if cutoff_hz is None:
+            raise ValueError("hp requires cutoff_hz")
+        N = win_for_cutoff(float(cutoff_hz))
+        lp = moving_average_lowpass(x, N)
+        return (x - lp).astype(np.float32)
+
+    elif mode == "bp":
+        if low_cutoff_hz is None or high_cutoff_hz is None:
+            raise ValueError("bp requires low_cutoff_hz and high_cutoff_hz")
+        lo = float(low_cutoff_hz)
+        hi = float(high_cutoff_hz)
+        if not (lo < hi):
+            raise ValueError("For bp, require low_cutoff_hz < high_cutoff_hz")
+        Nlo = win_for_cutoff(lo)
+        Nhi = win_for_cutoff(hi)
+        lp_hi = moving_average_lowpass(x, Nhi)
+        lp_lo = moving_average_lowpass(x, Nlo)
+        return (lp_hi - lp_lo).astype(np.float32)
+
+    elif mode == "notch":
+        if low_cutoff_hz is None or high_cutoff_hz is None:
+            raise ValueError("notch requires low_cutoff_hz and high_cutoff_hz")
+        lo = float(low_cutoff_hz)
+        hi = float(high_cutoff_hz)
+        if not (lo < hi):
+            raise ValueError("For notch, require low_cutoff_hz < high_cutoff_hz")
+        # Notch as x - BP
+        bp = moving_average_filter(x, sample_rate, mode="bp", low_cutoff_hz=lo, high_cutoff_hz=hi)
+        return (x - bp).astype(np.float32)
+
+    else:
+        raise ValueError("mode must be one of: lp, hp, bp, notch")
+
+
 # Typing helper for processors
 Processor = Callable[[np.ndarray], np.ndarray]

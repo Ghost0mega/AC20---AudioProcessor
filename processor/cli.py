@@ -1,6 +1,6 @@
 import argparse
 from .audio_io import read_wav, write_wav, generate_tone, generate_white_noise
-from .effects import hard_clip, gain, soft_clip, comb_filter, phaser, flanger
+from .effects import hard_clip, gain, soft_clip, comb_filter, phaser, flanger, moving_average_filter
 from .processor import AudioProcessor
 
 
@@ -39,6 +39,8 @@ def cmd_process(args: argparse.Namespace) -> None:
         pipeline.add(lambda s: phaser(s, sr, args.phaser_rate, args.phaser_depth, args.phaser_stages, args.phaser_feedback, args.phaser_mix, args.phaser_center))
     if args.flanger:
         pipeline.add(lambda s: flanger(s, sr, args.flanger_base_ms, args.flanger_depth_ms, args.flanger_rate, args.flanger_feedback, args.flanger_mix))
+    if args.ma_filter is not None:
+        pipeline.add(lambda s: moving_average_filter(s, sr, args.ma_filter, args.ma_cutoff, args.ma_low, args.ma_high))
     if args.soft_clip is not None:
         pipeline.add(lambda s: soft_clip(s, args.soft_clip, args.soft_g, args.soft_T, args.soft_a, args.soft_b))
     if args.hard_clip is not None:
@@ -99,6 +101,12 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--flanger-rate", dest="flanger_rate", type=float, default=0.25, help="Flanger LFO rate (Hz)")
     pp.add_argument("--flanger-feedback", dest="flanger_feedback", type=float, default=0.3, help="Flanger feedback (-0.99..0.99)")
     pp.add_argument("--flanger-mix", dest="flanger_mix", type=float, default=0.5, help="Flanger wet mix (0..1)")
+    # Moving-average filters
+    pp.add_argument("--ma-filter", dest="ma_filter", choices=["lp", "hp", "bp", "notch"], default=None,
+                    help="Moving-average filter type")
+    pp.add_argument("--ma-cutoff", dest="ma_cutoff", type=float, default=None, help="Cutoff for lp/hp (Hz)")
+    pp.add_argument("--ma-low", dest="ma_low", type=float, default=None, help="Low cutoff for bp/notch (Hz)")
+    pp.add_argument("--ma-high", dest="ma_high", type=float, default=None, help="High cutoff for bp/notch (Hz)")
     pp.add_argument("--soft-clip", dest="soft_clip", choices=["tanh", "atan", "rational", "tube"], default=None,
                     help="Soft clip variant: tanh, atan, rational, tube")
     pp.add_argument("--soft-g", dest="soft_g", type=float, default=1.0, help="Soft clip drive g")
