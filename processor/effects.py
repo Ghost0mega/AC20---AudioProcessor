@@ -103,6 +103,45 @@ def comb_filter(
     return out.astype(np.float32)
 
 
+def delay(
+    signal: np.ndarray,
+    sample_rate: int,
+    delay_ms: float = 300.0,
+    feedback: float = 0.5,
+    mix: float = 0.5,
+) -> np.ndarray:
+    """Simple delay/echo effect with feedback.
+
+    - delay_ms: delay time in milliseconds
+    - feedback: feedback coefficient (|feedback| < 1 for stability)
+    - mix: wet mix in [0,1]; output = (1-mix)*x + mix*y
+
+    Implementation:
+    y[n] = x[n] + feedback * y[n-D]
+    """
+    x = signal.astype(np.float32)
+    if x.ndim == 1:
+        x = x.reshape(-1, 1)
+
+    n, c = x.shape
+    D = int(max(1, round(delay_ms * sample_rate / 1000.0)))
+    fb = float(np.clip(feedback, -0.99, 0.99))
+    mix = float(np.clip(mix, 0.0, 1.0))
+
+    y = np.zeros_like(x, dtype=np.float32)
+
+    for ch in range(c):
+        for i in range(n):
+            acc = x[i, ch]
+            j = i - D
+            if j >= 0:
+                acc += fb * y[j, ch]
+            y[i, ch] = acc
+
+    out = (1.0 - mix) * x + mix * y
+    return out.astype(np.float32)
+
+
 def phaser(
     signal: np.ndarray,
     sample_rate: int,
