@@ -1,6 +1,6 @@
 import argparse
 from .audio_io import read_wav, write_wav, generate_tone, generate_white_noise
-from .effects import hard_clip, gain, soft_clip, comb_filter, phaser
+from .effects import hard_clip, gain, soft_clip, comb_filter, phaser, flanger
 from .processor import AudioProcessor
 
 
@@ -37,6 +37,8 @@ def cmd_process(args: argparse.Namespace) -> None:
         pipeline.add(lambda s: comb_filter(s, sr, args.comb_delay_ms, args.comb_feedback, args.comb_feedforward, args.comb_mix))
     if args.phaser:
         pipeline.add(lambda s: phaser(s, sr, args.phaser_rate, args.phaser_depth, args.phaser_stages, args.phaser_feedback, args.phaser_mix, args.phaser_center))
+    if args.flanger:
+        pipeline.add(lambda s: flanger(s, sr, args.flanger_base_ms, args.flanger_depth_ms, args.flanger_rate, args.flanger_feedback, args.flanger_mix))
     if args.soft_clip is not None:
         pipeline.add(lambda s: soft_clip(s, args.soft_clip, args.soft_g, args.soft_T, args.soft_a, args.soft_b))
     if args.hard_clip is not None:
@@ -90,6 +92,13 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--phaser-feedback", dest="phaser_feedback", type=float, default=0.0, help="Phaser feedback (-0.99..0.99)")
     pp.add_argument("--phaser-mix", dest="phaser_mix", type=float, default=0.5, help="Phaser wet mix (0..1)")
     pp.add_argument("--phaser-center", dest="phaser_center", type=float, default=0.0, help="Phaser sweep center bias (-1..1)")
+    # Flanger
+    pp.add_argument("--flanger", action="store_true", help="Enable flanger")
+    pp.add_argument("--flanger-base-ms", dest="flanger_base_ms", type=float, default=2.0, help="Flanger base delay (ms)")
+    pp.add_argument("--flanger-depth-ms", dest="flanger_depth_ms", type=float, default=1.5, help="Flanger modulation depth (ms)")
+    pp.add_argument("--flanger-rate", dest="flanger_rate", type=float, default=0.25, help="Flanger LFO rate (Hz)")
+    pp.add_argument("--flanger-feedback", dest="flanger_feedback", type=float, default=0.3, help="Flanger feedback (-0.99..0.99)")
+    pp.add_argument("--flanger-mix", dest="flanger_mix", type=float, default=0.5, help="Flanger wet mix (0..1)")
     pp.add_argument("--soft-clip", dest="soft_clip", choices=["tanh", "atan", "rational", "tube"], default=None,
                     help="Soft clip variant: tanh, atan, rational, tube")
     pp.add_argument("--soft-g", dest="soft_g", type=float, default=1.0, help="Soft clip drive g")

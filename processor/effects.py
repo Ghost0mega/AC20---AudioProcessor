@@ -166,5 +166,68 @@ def phaser(
     return y.astype(np.float32)
 
 
+def flanger(
+    signal: np.ndarray,
+    sample_rate: int,
+    base_delay_ms: float = 2.0,
+    depth_ms: float = 1.5,
+    rate_hz: float = 0.25,
+    feedback: float = 0.3,
+    mix: float = 0.5,
+) -> np.ndarray:
+    """Classic flanger using variable fractional delay with sinusoidal LFO.
+
+    Parameters
+    - base_delay_ms: central delay in ms (typ. 0.5..5 ms)
+    - depth_ms: modulation depth in ms (typ. 0.1..3 ms)
+    - rate_hz: LFO frequency in Hz
+    - feedback: feedback coefficient (-0.99..0.99)
+    - mix: wet mix (0..1)
+
+    Implementation
+    - Variable delay d[n] = base + depth * sin(2π f_lfo t)
+    - Fractional delay via linear interpolation from past samples.
+    - Mono/stereo supported; channels processed independently.
+    """
+    x = signal.astype(np.float32)
+    if x.ndim == 1:
+        x = x.reshape(-1, 1)
+
+    n, c = x.shape
+    t = np.arange(n, dtype=np.float32) / float(sample_rate)
+    base_s = max(0.0, base_delay_ms * sample_rate / 1000.0)
+    depth_s = max(0.0, depth_ms * sample_rate / 1000.0)
+    fb = float(np.clip(feedback, -0.99, 0.99))
+    mix = float(np.clip(mix, 0.0, 1.0))
+
+    # LFO delay in samples per time index
+    d = base_s + depth_s * np.sin(2.0 * np.pi * rate_hz * t)
+
+    y = np.zeros_like(x, dtype=np.float32)
+
+    for ch in range(c):
+        for i in range(n):
+            # Compute fractional delay index
+            di = d[i]
+            k = int(np.floor(di))
+            frac = di - k
+            idx0 = i - k
+            idx1 = i - (k + 1)
+
+            # Helper to sample with linear interpolation from array arr
+            def sample(arr):
+                s0 = arr[idx0, ch] if idx0 >= 0 else 0.0
+                s1 = arr[idx1, ch] if idx1 >= 0 else 0.0
+                return (1.0 - frac) * s0 + frac * s1
+
+            delayed_x = sample(x)
+            delayed_y = sample(y)
+
+            wet = delayed_x + fb * delayed_y
+            y[i, ch] = (1.0 - mix) * x[i, ch] + mix * wet
+
+    return y.astype(np.float32)
+
+
 # Typing helper for processors
 Processor = Callable[[np.ndarray], np.ndarray]
