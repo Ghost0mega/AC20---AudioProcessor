@@ -2,10 +2,14 @@
 
 A minimal, modular audio processor for WAV files. It provides:
 
-- WAV read/write using 16-bit PCM
+- WAV read/write using PCM (16/24/32-bit) to float32
 - A pluggable processor pipeline (`AudioProcessor`)
-- Effects: gain, hard clip, and soft clip variants (tanh/atan/rational/tube)
-- A CLI with commands to process files and generate a test tone
+- Effects: gain, hard clip, soft clip variants (tanh/atan/rational/tube)
+- Time-based: delay/echo, phaser, flanger, Schroeder reverb
+- Filters: moving-average and running-average (EMA) LP/HP/BP/Notch
+- Convolver: apply impulse responses (IRs) via FFT
+- Generators: sine tone, white noise, sine pluck (with optional gate)
+- A CLI to generate and process WAVs
 
 ## Quick Start
 
@@ -24,6 +28,17 @@ python -m processor.cli generate-tone --output tone.wav --frequency 440 --durati
 ```
 
 ### Generate white noise
+### Generate a sine pluck (attack + decay, optional gate)
+
+```bash
+python -m processor.cli generate-sine-pluck \
+	--output sine_pluck.wav --frequency 440 --duration 1.5 \
+	--amplitude 0.9 --attack_ms 5 --decay_tau 0.35 [--gate_ms 30]
+```
+
+Notes:
+- `attack_ms`: linear ramp time (ms). `decay_tau`: exponential decay time constant (s).
+- `gate_ms` (optional): hard gate; envelope becomes zero after this time.
 
 ```bash
 python -m processor.cli generate-noise --output noise.wav --duration 2.0 --amplitude 0.8
@@ -105,20 +120,100 @@ python -m processor.cli process --input tone.wav --output phaser.wav \
 ```
 
 Notes:
+### Flanger
+
+Classic variable fractional delay with LFO:
+
+```bash
+python -m processor.cli process --input tone.wav --output flanger.wav \
+	--flanger --flanger-base-ms 2.0 --flanger-depth-ms 1.5 \
+	--flanger-rate 0.25 --flanger-feedback 0.3 --flanger-mix 0.5
+```
+
+Parameters:
+- Base/depth in ms; `rate` in Hz; `feedback` in (-0.99..0.99); `mix` in [0,1].
+
+### Delay / Echo
+
+Simple feedback delay:
+
+```bash
+python -m processor.cli process --input tone.wav --output delay.wav \
+	--delay --delay-ms 300 --delay-feedback 0.6 --delay-mix 0.5
+```
+
+### Schroeder Reverb
+
+Parallel combs → series all-pass filters. Quick room/hall examples:
+
+```bash
+# Roomy with predelay
+python -m processor.cli process --input sine_pluck.wav --output room.wav \
+	--reverb --reverb-mix 0.65 --reverb-predelay-ms 25 \
+	--reverb-comb-feedback 0.8 --reverb-damping 0.65
+
+# Strong hall
+python -m processor.cli process --input sine_pluck.wav --output hall.wav \
+	--reverb --reverb-mix 0.85 --reverb-predelay-ms 0 \
+	--reverb-comb-feedback 0.88 --reverb-damping 0.55
+```
+
+Notes:
+- `--reverb-damping` applies low-pass in comb feedback; higher → darker tail.
+- Defaults use balanced delay sets; predelay shifts the wet onset.
+
+### Filters (Moving-average and EMA)
+
+Moving-average (boxcar) and running-average (EMA) suites:
+
+```bash
+# Moving-average low-pass at 1000 Hz
+python -m processor.cli process --input noise.wav --output ma_lp_1000.wav \
+	--ma-filter lp --ma-cutoff 1000
+
+# EMA low-pass order 4 (steeper)
+python -m processor.cli process --input noise.wav --output ra_lp_1000_o4.wav \
+	--ra-filter lp --ra-cutoff 1000 --ra-order 4
+
+# EMA band-pass 800–2000 Hz with brickwall (zero-phase)
+python -m processor.cli process --input noise.wav --output ra_bp_800_2000_bw.wav \
+	--ra-filter bp --ra-low 800 --ra-high 2000 --ra-order 6 --ra-brickwall
+```
+
+Notes:
+- MA cutoff mapping is approximate (sinc response); EMA uses α mapping for -3 dB.
+- EMA `order` controls slope; `--ra-brickwall` applies forward+reverse filtering.
+
+### Convolver (Impulse Responses)
+
+Apply IRs via FFT with optional normalization and auto-gain:
+
+```bash
+python -m processor.cli process --input melody.wav --output convolved.wav \
+	--convolver --conv-ir audio/impulse-responses/Church\ Schellingwoude.wav \
+	--conv-mix 1.0 --conv-normalize --conv-auto-gain --conv-target-peak 0.9
+```
+
+Notes:
+- Mono IR → applied to all channels; stereo IR → per-channel convolution.
+- `--conv-normalize` scales IR to unit peak; `--conv-auto-gain` attenuates wet to target peak.
 - More stages increase the number of notches (classic: 4–8 stages).
 - `--phaser-rate` controls sweep speed; `--phaser-depth` controls how wide the notches move.
 - `--phaser-feedback` emphasizes the notches for a more pronounced effect.
 
 ## Code Structure
 
-- [processor/audio_io.py](processor/audio_io.py): WAV file I/O (16-bit PCM) with NumPy.
-- [processor/effects.py](processor/effects.py): Effects `gain(...)`, `hard_clip(...)`, `soft_clip(...)` variants.
-	Also: `comb_filter(signal, sample_rate, delay_ms, feedback, feedforward, mix)`.
+- [processor/audio_io.py](processor/audio_io.py): WAV I/O (16/24/32-bit PCM → float32); generators:
+	- `generate_tone(...)`, `generate_white_noise(...)`, `generate_sine_pluck(...)`
+- [processor/effects.py](processor/effects.py):
+	- Dynamics: `gain(...)`, `hard_clip(...)`, `soft_clip(...)`
+	- Time-based: `delay(...)`, `phaser(...)`, `flanger(...)`, `reverb_schroeder(...)`
+	- Filters: `moving_average_filter(...)`, `running_average_filter(...)`
+	- Convolver: `convolver(signal, ir, ...)`
 - [processor/processor.py](processor/processor.py): `AudioProcessor` for chaining effects.
 - [processor/cli.py](processor/cli.py): Command-line interface.
 
 ## Notes
 
-- Signals are processed as float32, nominally in [-1, 1].
-- The current `gain(...)` clamps to [-1, 1]; if you prefer unclipped gain to let soft/hard clip control the limiting, we can expose a `--gain-no-clip` option.
-- The WAV writer clamps to [-1, 1] before converting to 16-bit PCM to avoid overflow.
+- Signals are processed as float32 in [-1, 1]; WAV writer clamps before PCM conversion.
+- Some effects (soft clip, reverb, convolver) can increase level; use wet `mix`, auto-gain or reduce input to avoid clipping.
