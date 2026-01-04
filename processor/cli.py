@@ -1,6 +1,6 @@
 import argparse
 from .audio_io import read_wav, write_wav, generate_tone, generate_white_noise, generate_sine_pluck
-from .effects import hard_clip, gain, soft_clip, comb_filter, phaser, flanger, moving_average_filter, running_average_filter, delay, reverb_schroeder
+from .effects import hard_clip, gain, soft_clip, comb_filter, phaser, flanger, moving_average_filter, running_average_filter, delay, reverb_schroeder, convolver
 from .processor import AudioProcessor
 
 
@@ -37,6 +37,11 @@ def cmd_process(args: argparse.Namespace) -> None:
         pipeline.add(lambda s: delay(s, sr, args.delay_ms, args.delay_feedback, args.delay_mix))
     if args.reverb:
         pipeline.add(lambda s: reverb_schroeder(s, sr, args.reverb_mix, args.reverb_predelay_ms, args.reverb_comb_feedback, args.reverb_damping))
+    if args.convolver:
+        ir_sig, ir_sr = read_wav(args.conv_ir)
+        if ir_sr != sr:
+            print(f"Warning: IR sample rate {ir_sr} != input {sr}; proceeding without resample.")
+        pipeline.add(lambda s, ir=ir_sig: convolver(s, ir, args.conv_mix, args.conv_normalize, args.conv_auto_gain, args.conv_target_peak))
     if args.comb:
         pipeline.add(lambda s: comb_filter(s, sr, args.comb_delay_ms, args.comb_feedback, args.comb_feedforward, args.comb_mix))
     if args.phaser:
@@ -123,6 +128,13 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--reverb-predelay-ms", dest="reverb_predelay_ms", type=float, default=20.0, help="Reverb pre-delay (ms)")
     pp.add_argument("--reverb-comb-feedback", dest="reverb_comb_feedback", type=float, default=0.7, help="Reverb comb feedback (-0.99..0.99)")
     pp.add_argument("--reverb-damping", dest="reverb_damping", type=float, default=0.5, help="Comb damping (low-pass in feedback, 0..1)")
+    # Convolver (IR)
+    pp.add_argument("--convolver", action="store_true", help="Enable convolution with an impulse response (IR)")
+    pp.add_argument("--conv-ir", dest="conv_ir", type=str, default=None, help="Path to IR WAV file")
+    pp.add_argument("--conv-mix", dest="conv_mix", type=float, default=1.0, help="Convolver wet mix (0..1)")
+    pp.add_argument("--conv-normalize", dest="conv_normalize", action="store_true", help="Normalize IR to unit peak")
+    pp.add_argument("--conv-auto-gain", dest="conv_auto_gain", action="store_true", help="Auto-attenuate wet output to target peak")
+    pp.add_argument("--conv-target-peak", dest="conv_target_peak", type=float, default=0.9, help="Target wet peak when auto-gain is enabled (0..1)")
     # Comb filter
     pp.add_argument("--comb", action="store_true", help="Enable comb filter")
     pp.add_argument("--comb-delay-ms", dest="comb_delay_ms", type=float, default=10.0, help="Comb delay in ms")

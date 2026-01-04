@@ -14,17 +14,36 @@ def read_wav(path: str) -> Tuple[np.ndarray, int]:
         sampwidth = wf.getsampwidth()
         framerate = wf.getframerate()
         n_frames = wf.getnframes()
-        if sampwidth != 2:
-            raise ValueError(f"Only 16-bit PCM supported (found sampwidth={sampwidth}).")
         frames = wf.readframes(n_frames)
 
-    data_i16 = np.frombuffer(frames, dtype=np.int16)
-    if n_channels > 1:
-        data_i16 = data_i16.reshape(-1, n_channels)
+    if sampwidth == 2:
+        data_i = np.frombuffer(frames, dtype=np.int16).astype(np.int32)
+        scale = 32768.0
+    elif sampwidth == 3:
+        # 24-bit little-endian signed PCM
+        b = np.frombuffer(frames, dtype=np.uint8).reshape(-1, 3)
+        # Assemble into 32-bit int
+        data_i = (b[:, 0].astype(np.int32)
+                  | (b[:, 1].astype(np.int32) << 8)
+                  | (b[:, 2].astype(np.int32) << 16))
+        # Sign extend: if value >= 2^23, subtract 2^24
+        sign = 1 << 23
+        full = 1 << 24
+        data_i = np.where((data_i & sign) != 0, data_i - full, data_i)
+        scale = float(1 << 23)
+    elif sampwidth == 4:
+        # Assume 32-bit signed PCM
+        data_i = np.frombuffer(frames, dtype=np.int32)
+        scale = float(1 << 31)
     else:
-        data_i16 = data_i16.reshape(-1, 1)
+        raise ValueError(f"Unsupported WAV sampwidth={sampwidth}. Supported: 16-bit, 24-bit, 32-bit PCM.")
 
-    data_f32 = (data_i16.astype(np.float32)) / 32768.0
+    if n_channels > 1:
+        data_i = data_i.reshape(-1, n_channels)
+    else:
+        data_i = data_i.reshape(-1, 1)
+
+    data_f32 = (data_i.astype(np.float32)) / scale
     return data_f32, framerate
 
 

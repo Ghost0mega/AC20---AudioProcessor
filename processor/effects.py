@@ -562,3 +562,79 @@ def reverb_schroeder(
 
     out = (1.0 - mix) * x + mix * wet
     return out.astype(np.float32)
+
+
+def _next_pow_two(n: int) -> int:
+    p = 1
+    while p < n:
+        p <<= 1
+    return p
+
+
+def convolver(
+    signal: np.ndarray,
+    ir: np.ndarray,
+    mix: float = 1.0,
+    normalize_ir: bool = True,
+    auto_gain: bool = True,
+    target_peak: float = 0.9,
+) -> np.ndarray:
+    """Convolve `signal` with impulse response `ir` using FFT.
+
+    - signal: (N, C) float32 in [-1,1]
+    - ir: (M, C_ir) float32 in [-1,1]
+    - mix: wet mix amount (0..1)
+    - normalize_ir: scale IR to unit peak to avoid runaway gain
+
+    Channel mapping:
+    - If IR is mono, applied to all signal channels.
+    - If IR has same channel count as signal, convolve per channel.
+    - Otherwise, fallback to using first IR channel.
+    Output length is truncated to input length N.
+    """
+    x = signal.astype(np.float32)
+    if x.ndim == 1:
+        x = x.reshape(-1, 1)
+    ir = ir.astype(np.float32)
+    if ir.ndim == 1:
+        ir = ir.reshape(-1, 1)
+
+    n, c = x.shape
+    m, c_ir = ir.shape
+
+    mix = float(np.clip(mix, 0.0, 1.0))
+
+    if normalize_ir:
+        peak = float(np.max(np.abs(ir))) if ir.size > 0 else 1.0
+        if peak > 1e-12:
+            ir = ir / peak
+
+    # Choose IR channel mapping
+    def ir_channel(idx: int) -> np.ndarray:
+        if c_ir == 1:
+            return ir[:, 0]
+        if idx < c_ir:
+            return ir[:, idx]
+        return ir[:, 0]
+
+    # FFT-based convolution per channel
+    out_wet = np.zeros_like(x, dtype=np.float32)
+    nfft = _next_pow_two(n + m - 1)
+    for ch in range(c):
+        X = np.fft.rfft(x[:, ch], nfft)
+        H = np.fft.rfft(ir_channel(ch), nfft)
+        Y = X * H
+        y = np.fft.irfft(Y, nfft).astype(np.float32)
+        out_wet[:, ch] = y[:n]
+
+    # Optional auto-gain to avoid clipping and set headroom
+    if auto_gain:
+        peak = float(np.max(np.abs(out_wet))) if out_wet.size > 0 else 0.0
+        tp = float(np.clip(target_peak, 0.0, 1.0))
+        if peak > 1e-9:
+            scale = min(1.0, tp / peak)  # only attenuate
+            out_wet *= scale
+
+    out = (1.0 - mix) * x + mix * out_wet
+    # Clip lightly to maintain WAV writer expectations
+    return np.clip(out, -1.0, 1.0).astype(np.float32)
