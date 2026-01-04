@@ -1,5 +1,5 @@
 import argparse
-from .audio_io import read_wav, write_wav, generate_tone, generate_white_noise
+from .audio_io import read_wav, write_wav, generate_tone, generate_white_noise, generate_sine_pluck
 from .effects import hard_clip, gain, soft_clip, comb_filter, phaser, flanger, moving_average_filter, running_average_filter
 from .processor import AudioProcessor
 
@@ -75,6 +75,30 @@ def build_parser() -> argparse.ArgumentParser:
     pn.add_argument("--amplitude", type=float, default=0.9)
     pn.add_argument("--channels", type=int, choices=[1, 2], default=1)
     pn.set_defaults(func=cmd_generate_noise)
+
+    # generate-sine-pluck
+    psp = sub.add_parser("generate-sine-pluck", help="Generate a sine pluck (attack + exponential decay)")
+    psp.add_argument("--output", required=True, help="Output WAV path")
+    psp.add_argument("--frequency", type=float, default=440.0)
+    psp.add_argument("--duration", type=float, default=1.0)
+    psp.add_argument("--sample_rate", type=int, default=44100)
+    psp.add_argument("--amplitude", type=float, default=0.9)
+    psp.add_argument("--attack_ms", type=float, default=5.0, help="Attack time in milliseconds")
+    psp.add_argument("--decay_tau", type=float, default=0.3, help="Exponential decay time constant in seconds")
+    psp.add_argument("--channels", type=int, choices=[1, 2], default=1)
+    def cmd_generate_sine_pluck(args: argparse.Namespace) -> None:
+        sig = generate_sine_pluck(
+            frequency=args.frequency,
+            duration=args.duration,
+            sample_rate=args.sample_rate,
+            amplitude=args.amplitude,
+            attack_ms=args.attack_ms,
+            decay_tau=args.decay_tau,
+            channels=args.channels,
+        )
+        write_wav(args.output, sig, args.sample_rate)
+        print(f"Generated sine pluck: {args.output}")
+    psp.set_defaults(func=cmd_generate_sine_pluck)
 
     # process
     pp = sub.add_parser("process", help="Process a WAV file")

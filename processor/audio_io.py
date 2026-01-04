@@ -87,3 +87,58 @@ def generate_white_noise(
         return np.column_stack([noise, noise])
     else:
         raise ValueError("Only mono or stereo supported.")
+
+
+def generate_sine_pluck(
+    frequency: float = 440.0,
+    duration: float = 1.0,
+    sample_rate: int = 44100,
+    amplitude: float = 0.9,
+    attack_ms: float = 5.0,
+    decay_tau: float = 0.3,
+    channels: int = 1,
+) -> np.ndarray:
+    """Generate a sine "pluck" tone with a fast attack and exponential decay.
+
+    Parameters
+    - frequency: Base sine frequency (Hz)
+    - duration: Total length (seconds)
+    - sample_rate: Sampling rate (Hz)
+    - amplitude: Peak amplitude before envelope (0..1)
+    - attack_ms: Attack time in milliseconds for ramp-up
+    - decay_tau: Exponential decay time constant in seconds
+    - channels: 1 (mono) or 2 (stereo)
+    """
+    n = int(duration * sample_rate)
+    if n <= 0:
+        return np.zeros((0, max(1, channels)), dtype=np.float32)
+
+    t = np.arange(n, dtype=np.float32) / sample_rate
+    sig = np.sin(2.0 * np.pi * frequency * t).astype(np.float32)
+
+    # Envelope: linear attack then exponential decay
+    attack_samples = max(1, int((attack_ms / 1000.0) * sample_rate))
+    attack = np.linspace(0.0, 1.0, attack_samples, endpoint=False, dtype=np.float32)
+    decay_len = max(0, n - attack_samples)
+    # Decay starts at 1.0 and falls with time constant decay_tau
+    if decay_len > 0:
+        k = 1.0 / max(1e-6, decay_tau * sample_rate)
+        decay = np.exp(-k * np.arange(decay_len, dtype=np.float32))
+        env = np.concatenate([attack, decay], dtype=np.float32)
+    else:
+        env = attack[:n]
+
+    # Ensure envelope length equals signal length
+    if env.size < n:
+        env = np.pad(env, (0, n - env.size), mode='constant', constant_values=0.0)
+    elif env.size > n:
+        env = env[:n]
+
+    out = (amplitude * env * sig).astype(np.float32)
+
+    if channels == 1:
+        return out.reshape(-1, 1)
+    elif channels == 2:
+        return np.column_stack([out, out])
+    else:
+        raise ValueError("Only mono or stereo supported.")
