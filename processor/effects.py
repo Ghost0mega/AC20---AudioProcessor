@@ -464,3 +464,101 @@ def running_average_filter(
 
 # Typing helper for processors
 Processor = Callable[[np.ndarray], np.ndarray]
+
+
+def reverb_schroeder(
+    signal: np.ndarray,
+    sample_rate: int,
+    mix: float = 0.3,
+    predelay_ms: float = 20.0,
+    comb_feedback: float = 0.7,
+    damping: float = 0.5,
+    comb_delays_ms: list[float] | None = None,
+    allpass_delays_ms: list[float] | None = None,
+    allpass_coefs: list[float] | None = None,
+) -> np.ndarray:
+    """Simple Schroeder reverberator: parallel combs → series all-pass.
+
+    Parameters
+    - mix: wet mix in [0,1]
+    - predelay_ms: pre-delay applied to wet path (ms)
+    - comb_feedback: feedback coefficient for all combs (-0.99..0.99)
+    - comb_delays_ms: list of comb delays (ms); defaults to ~classic set
+    - allpass_delays_ms: list of all-pass delays (ms); defaults to [5.0, 1.7]
+    - allpass_coefs: list of all-pass coefficients; defaults to [0.7, 0.7]
+
+    Implementation
+    - Wet path is input with pre-delay, then processed by parallel comb filters:
+        y_i[n] = x_pd[n] + g · y_i[n - D_i]
+      Wet sum is average of comb outputs to control level.
+    - Then series of constant-coefficient all-pass filters:
+        y[n] = -a · x[n] + x[n - D] + a · y[n - D]
+    - Output: (1-mix)*dry + mix*wet
+    """
+    x = signal.astype(np.float32)
+    if x.ndim == 1:
+        x = x.reshape(-1, 1)
+    n, c = x.shape
+
+    mix = float(np.clip(mix, 0.0, 1.0))
+    g = float(np.clip(comb_feedback, -0.99, 0.99))
+    dmp = float(np.clip(damping, 0.0, 1.0))
+    predelay_s = int(max(0, round(predelay_ms * sample_rate / 1000.0)))
+
+    if comb_delays_ms is None:
+        comb_delays_ms = [29.7, 37.1, 41.1, 43.7]
+    if allpass_delays_ms is None:
+        allpass_delays_ms = [5.0, 1.7]
+    if allpass_coefs is None:
+        allpass_coefs = [0.7, 0.7]
+
+    comb_D = [int(max(1, round(d * sample_rate / 1000.0))) for d in comb_delays_ms]
+    ap_D = [int(max(1, round(d * sample_rate / 1000.0))) for d in allpass_delays_ms]
+    ap_a = [float(np.clip(a, -0.99, 0.99)) for a in allpass_coefs]
+
+    # Pre-delay wet input
+    x_pd = np.zeros_like(x, dtype=np.float32)
+    if predelay_s > 0:
+        x_pd[predelay_s:, :] = x[: max(0, n - predelay_s), :]
+    else:
+        x_pd[:] = x
+
+    # Parallel comb filters, per channel
+    wet_sum = np.zeros_like(x, dtype=np.float32)
+    num_combs = len(comb_D)
+
+    for D in comb_D:
+        y_i = np.zeros_like(x, dtype=np.float32)
+        # Per-channel one-pole LP state for feedback path
+        lp_state = np.zeros(c, dtype=np.float32)
+        for ch in range(c):
+            lp_state[ch] = 0.0
+        for i in range(n):
+            for ch in range(c):
+                acc = x_pd[i, ch]
+                j = i - D
+                if j >= 0:
+                    # Low-pass filter the delayed comb output before feedback
+                    # s = (1-dmp) * y_i[j] + dmp * s_prev
+                    lp_state[ch] = (1.0 - dmp) * y_i[j, ch] + dmp * lp_state[ch]
+                    acc += g * lp_state[ch]
+                y_i[i, ch] = acc
+        wet_sum += y_i
+
+    # Average parallel combs to control level
+    wet = wet_sum / float(max(1, num_combs))
+
+    # Series all-pass filters
+    for D, a in zip(ap_D, ap_a):
+        y_ap = np.zeros_like(wet, dtype=np.float32)
+        for ch in range(c):
+            for i in range(n):
+                j = i - D
+                x_n = wet[i, ch]
+                x_d = wet[j, ch] if j >= 0 else 0.0
+                y_d = y_ap[j, ch] if j >= 0 else 0.0
+                y_ap[i, ch] = -a * x_n + x_d + a * y_d
+        wet = y_ap
+
+    out = (1.0 - mix) * x + mix * wet
+    return out.astype(np.float32)

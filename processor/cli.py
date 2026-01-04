@@ -1,6 +1,6 @@
 import argparse
 from .audio_io import read_wav, write_wav, generate_tone, generate_white_noise, generate_sine_pluck
-from .effects import hard_clip, gain, soft_clip, comb_filter, phaser, flanger, moving_average_filter, running_average_filter, delay
+from .effects import hard_clip, gain, soft_clip, comb_filter, phaser, flanger, moving_average_filter, running_average_filter, delay, reverb_schroeder
 from .processor import AudioProcessor
 
 
@@ -35,6 +35,8 @@ def cmd_process(args: argparse.Namespace) -> None:
         pipeline.add(lambda s: gain(s, args.gain))
     if args.delay:
         pipeline.add(lambda s: delay(s, sr, args.delay_ms, args.delay_feedback, args.delay_mix))
+    if args.reverb:
+        pipeline.add(lambda s: reverb_schroeder(s, sr, args.reverb_mix, args.reverb_predelay_ms, args.reverb_comb_feedback, args.reverb_damping))
     if args.comb:
         pipeline.add(lambda s: comb_filter(s, sr, args.comb_delay_ms, args.comb_feedback, args.comb_feedforward, args.comb_mix))
     if args.phaser:
@@ -87,6 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     psp.add_argument("--amplitude", type=float, default=0.9)
     psp.add_argument("--attack_ms", type=float, default=5.0, help="Attack time in milliseconds")
     psp.add_argument("--decay_tau", type=float, default=0.3, help="Exponential decay time constant in seconds")
+    psp.add_argument("--gate_ms", type=float, default=None, help="Optional hard gate time in milliseconds (zero after this time)")
     psp.add_argument("--channels", type=int, choices=[1, 2], default=1)
     def cmd_generate_sine_pluck(args: argparse.Namespace) -> None:
         sig = generate_sine_pluck(
@@ -97,6 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
             attack_ms=args.attack_ms,
             decay_tau=args.decay_tau,
             channels=args.channels,
+            gate_ms=args.gate_ms,
         )
         write_wav(args.output, sig, args.sample_rate)
         print(f"Generated sine pluck: {args.output}")
@@ -113,6 +117,12 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--delay-ms", dest="delay_ms", type=float, default=300.0, help="Delay time (ms)")
     pp.add_argument("--delay-feedback", dest="delay_feedback", type=float, default=0.5, help="Delay feedback (-0.99..0.99)")
     pp.add_argument("--delay-mix", dest="delay_mix", type=float, default=0.5, help="Delay wet mix (0..1)")
+    # Reverb (Schroeder)
+    pp.add_argument("--reverb", action="store_true", help="Enable Schroeder reverb")
+    pp.add_argument("--reverb-mix", dest="reverb_mix", type=float, default=0.3, help="Reverb wet mix (0..1)")
+    pp.add_argument("--reverb-predelay-ms", dest="reverb_predelay_ms", type=float, default=20.0, help="Reverb pre-delay (ms)")
+    pp.add_argument("--reverb-comb-feedback", dest="reverb_comb_feedback", type=float, default=0.7, help="Reverb comb feedback (-0.99..0.99)")
+    pp.add_argument("--reverb-damping", dest="reverb_damping", type=float, default=0.5, help="Comb damping (low-pass in feedback, 0..1)")
     # Comb filter
     pp.add_argument("--comb", action="store_true", help="Enable comb filter")
     pp.add_argument("--comb-delay-ms", dest="comb_delay_ms", type=float, default=10.0, help="Comb delay in ms")

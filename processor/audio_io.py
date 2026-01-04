@@ -96,6 +96,7 @@ def generate_sine_pluck(
     amplitude: float = 0.9,
     attack_ms: float = 5.0,
     decay_tau: float = 0.3,
+    gate_ms: float | None = None,
     channels: int = 1,
 ) -> np.ndarray:
     """Generate a sine "pluck" tone with a fast attack and exponential decay.
@@ -127,6 +128,12 @@ def generate_sine_pluck(
         env = np.concatenate([attack, decay], dtype=np.float32)
     else:
         env = attack[:n]
+
+    # Optional hard gate: zero the envelope after gate_ms
+    if gate_ms is not None:
+        gate_n = int(max(0, round((gate_ms / 1000.0) * sample_rate)))
+        if gate_n < env.size:
+            env[gate_n:] = 0.0
 
     # Ensure envelope length equals signal length
     if env.size < n:
