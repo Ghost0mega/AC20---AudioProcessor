@@ -103,5 +103,68 @@ def comb_filter(
     return out.astype(np.float32)
 
 
+def phaser(
+    signal: np.ndarray,
+    sample_rate: int,
+    rate_hz: float = 0.5,
+    depth: float = 0.7,
+    stages: int = 4,
+    feedback: float = 0.0,
+    mix: float = 0.5,
+    center: float = 0.0,
+) -> np.ndarray:
+    """Simple multi-stage phaser using cascaded first-order all-pass filters.
+
+    Parameters
+    - rate_hz: LFO rate in Hz
+    - depth: LFO depth controlling all-pass coefficient modulation (0..1)
+    - stages: number of all-pass stages (2..12 recommended)
+    - feedback: feedback from wet output back to input (-0.99..0.99)
+    - mix: wet mix amount in [0,1]
+    - center: DC offset for coefficient (shifts the sweep center)
+
+    Implementation notes
+    - Per-sample coefficient a[n] = clamp(center + depth * sin(2π f_lfo t), -0.99, 0.99)
+    - Each stage uses: y = -a*x + x_prev + a*y_prev
+    - Channels processed independently; maintains simple per-stage state.
+    """
+    x = signal.astype(np.float32)
+    if x.ndim == 1:
+        x = x.reshape(-1, 1)
+
+    n, c = x.shape
+    t = np.arange(n, dtype=np.float32) / float(sample_rate)
+    lfo = depth * np.sin(2.0 * np.pi * rate_hz * t) + center
+    a = np.clip(lfo, -0.99, 0.99).astype(np.float32)
+
+    stages = max(1, int(stages))
+    fb = float(np.clip(feedback, -0.99, 0.99))
+    mix = float(np.clip(mix, 0.0, 1.0))
+
+    y = np.zeros_like(x, dtype=np.float32)
+
+    # Process per channel
+    for ch in range(c):
+        # Initialize per-stage states
+        x_prev = np.zeros(stages, dtype=np.float32)
+        y_prev = np.zeros(stages, dtype=np.float32)
+        wet_prev = 0.0
+        for i in range(n):
+            xi = x[i, ch] + fb * wet_prev
+            xin = xi
+            a_i = a[i]
+            # Cascade through stages
+            for s in range(stages):
+                y_s = -a_i * xin + x_prev[s] + a_i * y_prev[s]
+                x_prev[s] = xin
+                y_prev[s] = y_s
+                xin = y_s
+            wet = xin
+            y[i, ch] = (1.0 - mix) * x[i, ch] + mix * wet
+            wet_prev = wet
+
+    return y.astype(np.float32)
+
+
 # Typing helper for processors
 Processor = Callable[[np.ndarray], np.ndarray]

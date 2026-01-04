@@ -94,6 +94,21 @@ This implements:
 - `y[n] = x[n] + feedforward · x[n-D] + feedback · y[n-D]`, where `D` is the delay in samples.
 - Output is `(1-mix)·x + mix·y`.
 
+### Phaser
+
+Enable a multi-stage phaser (cascaded all-pass filters) with LFO sweep:
+
+```bash
+python -m processor.cli process --input tone.wav --output phaser.wav \
+	--phaser --phaser-rate 0.6 --phaser-depth 0.8 --phaser-stages 4 \
+	--phaser-feedback 0.2 --phaser-mix 0.6
+```
+
+Notes:
+- More stages increase the number of notches (classic: 4–8 stages).
+- `--phaser-rate` controls sweep speed; `--phaser-depth` controls how wide the notches move.
+- `--phaser-feedback` emphasizes the notches for a more pronounced effect.
+
 ## Code Structure
 
 - [processor/audio_io.py](processor/audio_io.py): WAV file I/O (16-bit PCM) with NumPy.

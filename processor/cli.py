@@ -1,6 +1,6 @@
 import argparse
 from .audio_io import read_wav, write_wav, generate_tone, generate_white_noise
-from .effects import hard_clip, gain, soft_clip, comb_filter
+from .effects import hard_clip, gain, soft_clip, comb_filter, phaser
 from .processor import AudioProcessor
 
 
@@ -35,6 +35,8 @@ def cmd_process(args: argparse.Namespace) -> None:
         pipeline.add(lambda s: gain(s, args.gain))
     if args.comb:
         pipeline.add(lambda s: comb_filter(s, sr, args.comb_delay_ms, args.comb_feedback, args.comb_feedforward, args.comb_mix))
+    if args.phaser:
+        pipeline.add(lambda s: phaser(s, sr, args.phaser_rate, args.phaser_depth, args.phaser_stages, args.phaser_feedback, args.phaser_mix, args.phaser_center))
     if args.soft_clip is not None:
         pipeline.add(lambda s: soft_clip(s, args.soft_clip, args.soft_g, args.soft_T, args.soft_a, args.soft_b))
     if args.hard_clip is not None:
@@ -80,6 +82,14 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--comb-feedback", dest="comb_feedback", type=float, default=0.5, help="Comb feedback coefficient (-1..1)")
     pp.add_argument("--comb-feedforward", dest="comb_feedforward", type=float, default=0.0, help="Comb feedforward coefficient (-1..1)")
     pp.add_argument("--comb-mix", dest="comb_mix", type=float, default=1.0, help="Comb wet mix (0..1)")
+    # Phaser
+    pp.add_argument("--phaser", action="store_true", help="Enable phaser")
+    pp.add_argument("--phaser-rate", dest="phaser_rate", type=float, default=0.5, help="Phaser LFO rate (Hz)")
+    pp.add_argument("--phaser-depth", dest="phaser_depth", type=float, default=0.7, help="Phaser LFO depth (0..1)")
+    pp.add_argument("--phaser-stages", dest="phaser_stages", type=int, default=4, help="Phaser stages (2..12)")
+    pp.add_argument("--phaser-feedback", dest="phaser_feedback", type=float, default=0.0, help="Phaser feedback (-0.99..0.99)")
+    pp.add_argument("--phaser-mix", dest="phaser_mix", type=float, default=0.5, help="Phaser wet mix (0..1)")
+    pp.add_argument("--phaser-center", dest="phaser_center", type=float, default=0.0, help="Phaser sweep center bias (-1..1)")
     pp.add_argument("--soft-clip", dest="soft_clip", choices=["tanh", "atan", "rational", "tube"], default=None,
                     help="Soft clip variant: tanh, atan, rational, tube")
     pp.add_argument("--soft-g", dest="soft_g", type=float, default=1.0, help="Soft clip drive g")
